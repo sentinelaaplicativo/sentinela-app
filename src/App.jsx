@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Search, Plus, User, Upload, Trash2, ExternalLink, Check, LogOut, Lock, Copy } from 'lucide-react';
+import { Shield, Search, Plus, User, Upload, ExternalLink, Check, LogOut, Lock, Copy, Edit } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 export default function SentinelaApp() {
@@ -86,27 +86,20 @@ export default function SentinelaApp() {
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
-    if (formFotos.length + files.length > 5) return alert('Máximo de 5 fotos.');
+    if (formFotos.length + files.length > 5) return alert('Máximo de 5 novas fotos por vez.');
     const processedFotos = await Promise.all(files.map(file => processImage(file)));
     setFormFotos(prev => [...prev, ...processedFotos]);
   };
 
   // Funções de formatação automática
   const formatCPF = (value) => {
-    return value
-      .replace(/\D/g, '')
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d{1,2})/, '$1-$2')
-      .replace(/(-\d{2})\d+?$/, '$1');
+    return value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})/, '$1-$2').replace(/(-\d{2})\d+?$/, '$1');
   };
 
   const formatRG = (value) => {
     let v = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
     if (v.length <= 9) {
-      v = v.replace(/(\d{2})(\d)/, '$1.$2');
-      v = v.replace(/(\d{3})(\d)/, '$1.$2');
-      v = v.replace(/(\d{3})([a-zA-Z0-9])$/, '$1-$2');
+      v = v.replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})([a-zA-Z0-9])$/, '$1-$2');
     }
     return v;
   };
@@ -123,39 +116,60 @@ export default function SentinelaApp() {
     if (!formData.nome) return;
     setLoading(true);
     
-    const arrayArtigos = formData.artigos.split(',').map(a => a.trim()).filter(Boolean);
+    const arrayArtigos = typeof formData.artigos === 'string' ? formData.artigos.split(',').map(a => a.trim()).filter(Boolean) : formData.artigos;
     const nomeUsuario = session.user.email.split('@')[0];
+    let indId;
 
-    const { data: indData, error: indError } = await supabase
-      .from('individuos')
-      .insert([{
-        nome: formData.nome,
-        vulgo: formData.vulgo,
-        cpf: formData.cpf,
-        rg: formData.rg,
-        endereco: formData.endereco,
-        artigos_criminais: arrayArtigos,
-        modus_operandi: formData.modus_operandi,
-        criado_por: nomeUsuario,
-        user_id: session.user.id
-      }])
-      .select()
-      .single();
+    if (selectedIndividuo && view === 'edit') {
+      // MODO EDIÇÃO
+      const { error: indError } = await supabase
+        .from('individuos')
+        .update({
+          nome: formData.nome,
+          vulgo: formData.vulgo,
+          cpf: formData.cpf,
+          rg: formData.rg,
+          endereco: formData.endereco,
+          artigos_criminais: arrayArtigos,
+          modus_operandi: formData.modus_operandi
+        })
+        .eq('id', selectedIndividuo.id);
 
-    if (indError) { alert('Erro ao salvar'); setLoading(false); return; }
+      if (indError) { alert('Erro ao atualizar'); setLoading(false); return; }
+      indId = selectedIndividuo.id;
+    } else {
+      // MODO CRIAÇÃO
+      const { data: indData, error: indError } = await supabase
+        .from('individuos')
+        .insert([{
+          nome: formData.nome,
+          vulgo: formData.vulgo,
+          cpf: formData.cpf,
+          rg: formData.rg,
+          endereco: formData.endereco,
+          artigos_criminais: arrayArtigos,
+          modus_operandi: formData.modus_operandi,
+          criado_por: nomeUsuario,
+          user_id: session.user.id
+        }])
+        .select()
+        .single();
 
+      if (indError) { alert('Erro ao salvar'); setLoading(false); return; }
+      indId = indData.id;
+    }
+
+    // Salva novas fotos adicionadas
     for (const fotoBase64 of formFotos) {
       const blob = await fetch(fotoBase64).then(res => res.blob());
-      const fileName = `${indData.id}/${Date.now()}.jpg`;
+      const fileName = `${indId}/${Date.now()}.jpg`;
       
-      const { data: uploadData } = await supabase.storage
-        .from('fotos-individuos')
-        .upload(fileName, blob, { contentType: 'image/jpeg' });
+      const { data: uploadData } = await supabase.storage.from('fotos-individuos').upload(fileName, blob, { contentType: 'image/jpeg' });
 
       if (uploadData) {
         const { data: { publicUrl } } = supabase.storage.from('fotos-individuos').getPublicUrl(fileName);
         await supabase.from('fotos_individuos').insert([{
-          individuo_id: indData.id,
+          individuo_id: indId,
           url_storage: publicUrl,
           enviado_por: nomeUsuario,
           user_id: session.user.id
@@ -164,7 +178,15 @@ export default function SentinelaApp() {
     }
 
     await carregarDados();
-    setView('dashboard');
+    
+    if (view === 'edit') {
+      const { data } = await supabase.from('individuos').select('*, fotos_individuos(url_storage), observacoes_individuos(observacao, autor_nome, criado_em)').eq('id', indId).single();
+      if (data) setSelectedIndividuo(data);
+      setView('detail');
+    } else {
+      setView('dashboard');
+    }
+    
     setFormData({ nome: '', vulgo: '', cpf: '', rg: '', endereco: '', artigos: '', modus_operandi: '' });
     setFormFotos([]);
     setLoading(false);
@@ -196,11 +218,7 @@ export default function SentinelaApp() {
     setNovaNota('');
     carregarDados();
     
-    const { data } = await supabase
-      .from('individuos')
-      .select('*, fotos_individuos(url_storage), observacoes_individuos(observacao, autor_nome, criado_em)')
-      .eq('id', selectedIndividuo.id)
-      .single();
+    const { data } = await supabase.from('individuos').select('*, fotos_individuos(url_storage), observacoes_individuos(observacao, autor_nome, criado_em)').eq('id', selectedIndividuo.id).single();
     if(data) setSelectedIndividuo(data);
   };
 
@@ -214,6 +232,27 @@ export default function SentinelaApp() {
   const handleBNMP = (cpf) => {
     copiarCPF(cpf || selectedIndividuo.nome);
     window.open('https://portalbnmp.cnj.jus.br/', '_blank');
+  };
+
+  const abrirFormularioNovo = () => {
+    setSelectedIndividuo(null);
+    setFormData({ nome: '', vulgo: '', cpf: '', rg: '', endereco: '', artigos: '', modus_operandi: '' });
+    setFormFotos([]);
+    setView('form');
+  };
+
+  const abrirFormularioEdicao = () => {
+    setFormData({
+      nome: selectedIndividuo.nome || '',
+      vulgo: selectedIndividuo.vulgo || '',
+      cpf: selectedIndividuo.cpf || '',
+      rg: selectedIndividuo.rg || '',
+      endereco: selectedIndividuo.endereco || '',
+      artigos: selectedIndividuo.artigos_criminais ? selectedIndividuo.artigos_criminais.join(', ') : '',
+      modus_operandi: selectedIndividuo.modus_operandi || ''
+    });
+    setFormFotos([]);
+    setView('edit');
   };
 
   if (!session) {
@@ -278,7 +317,7 @@ export default function SentinelaApp() {
                 <Search className="absolute left-3 top-3 w-5 h-5 text-slate-500" />
                 <input type="text" placeholder="Pesquisar por nome, vulgo ou CPF..." className="w-full bg-slate-900 border border-slate-700 rounded-lg py-3 pl-10 pr-4 outline-none focus:border-cyan-500" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
               </div>
-              <button onClick={() => setView('form')} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 rounded-lg font-medium flex items-center gap-2">
+              <button onClick={abrirFormularioNovo} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 rounded-lg font-medium flex items-center gap-2">
                 <Plus className="w-5 h-5" /> Nova Ficha
               </button>
             </div>
@@ -306,9 +345,11 @@ export default function SentinelaApp() {
           </div>
         )}
 
-        {view === 'form' && (
+        {(view === 'form' || view === 'edit') && (
           <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <h2 className="text-xl font-bold mb-6 border-b border-slate-800 pb-4">Nova Ficha</h2>
+            <h2 className="text-xl font-bold mb-6 border-b border-slate-800 pb-4">
+              {view === 'edit' ? 'Editar Ficha' : 'Nova Ficha'}
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <input type="text" placeholder="Nome Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
               <input type="text" placeholder="Vulgo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.vulgo} onChange={e => setFormData({...formData, vulgo: e.target.value})} />
@@ -320,7 +361,7 @@ export default function SentinelaApp() {
             <textarea placeholder="Modus Operandi" className="w-full bg-slate-950 border border-slate-800 rounded p-3 h-24 mb-4 outline-none" value={formData.modus_operandi} onChange={e => setFormData({...formData, modus_operandi: e.target.value})} />
             
             <div className="bg-slate-950 p-4 border border-slate-800 rounded mb-4">
-              <p className="text-sm mb-2">Fotos ({formFotos.length}/5)</p>
+              <p className="text-sm mb-2">{view === 'edit' ? 'Adicionar Novas Fotos (as antigas serão mantidas)' : 'Fotos'}</p>
               <div className="flex gap-2">
                 {formFotos.map((f, i) => <img key={i} src={f} className="w-16 h-16 object-cover rounded border border-slate-700" />)}
                 {formFotos.length < 5 && (
@@ -333,9 +374,9 @@ export default function SentinelaApp() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <button onClick={() => setView('dashboard')} className="text-slate-400">Cancelar</button>
-              <button onClick={handleSave} disabled={loading || !formData.nome} className="bg-cyan-600 text-white px-6 py-2 rounded">
-                {loading ? 'Salvando...' : 'Salvar Ficha'}
+              <button onClick={() => view === 'edit' ? setView('detail') : setView('dashboard')} className="text-slate-400">Cancelar</button>
+              <button onClick={handleSave} disabled={loading || !formData.nome} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded">
+                {loading ? 'Processando...' : (view === 'edit' ? 'Salvar Alterações' : 'Salvar Ficha')}
               </button>
             </div>
           </div>
@@ -343,21 +384,26 @@ export default function SentinelaApp() {
 
         {view === 'detail' && selectedIndividuo && (
           <div className="max-w-4xl mx-auto space-y-6">
-            <button onClick={() => setView('dashboard')} className="text-slate-400 text-sm">← Voltar</button>
+            <button onClick={() => setView('dashboard')} className="text-slate-400 text-sm hover:text-cyan-400 transition-colors">← Voltar para listagem</button>
             
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
               <div className="bg-slate-950 p-6 flex flex-col md:flex-row justify-between gap-4">
                 <div className="flex gap-4">
-                  {selectedIndividuo.fotos_individuos?.[0] ? <img src={selectedIndividuo.fotos_individuos[0].url_storage} className="w-24 h-24 rounded object-cover" /> : <div className="w-24 h-24 bg-slate-800 rounded flex items-center justify-center"><User className="text-slate-600 w-10 h-10"/></div>}
+                  {selectedIndividuo.fotos_individuos?.[0] ? <img src={selectedIndividuo.fotos_individuos[0].url_storage} className="w-24 h-24 rounded object-cover border border-slate-800" /> : <div className="w-24 h-24 bg-slate-800 rounded flex items-center justify-center"><User className="text-slate-600 w-10 h-10"/></div>}
                   <div className="flex flex-col justify-center">
-                    <h2 className="text-2xl font-bold">{selectedIndividuo.nome}</h2>
+                    <h2 className="text-2xl font-bold uppercase tracking-wide">{selectedIndividuo.nome}</h2>
                     <p className="text-cyan-400 font-medium">Vulgo: {selectedIndividuo.vulgo || 'Não informado'}</p>
                     <p className="text-xs text-slate-500 mt-1">Ficha criada por: {selectedIndividuo.criado_por}</p>
                   </div>
                 </div>
+                
+                {/* Botões restritos ao criador da ficha */}
                 {selectedIndividuo.user_id === session.user.id && (
-                  <div className="flex items-start">
-                    <button onClick={() => handleDelete(selectedIndividuo.id)} className={`px-4 py-2 rounded text-sm w-full md:w-auto ${confirmDeleteId === selectedIndividuo.id ? 'bg-red-600 text-white' : 'border border-red-900 text-red-500'}`}>
+                  <div className="flex flex-col md:flex-row items-center gap-2 mt-4 md:mt-0">
+                    <button onClick={abrirFormularioEdicao} className="px-4 py-2 rounded text-sm w-full md:w-auto border border-cyan-800 text-cyan-400 hover:bg-cyan-900/30 flex items-center justify-center gap-2 transition-colors">
+                      <Edit className="w-4 h-4" /> Editar
+                    </button>
+                    <button onClick={() => handleDelete(selectedIndividuo.id)} className={`px-4 py-2 rounded text-sm w-full md:w-auto flex items-center justify-center transition-colors ${confirmDeleteId === selectedIndividuo.id ? 'bg-red-600 text-white' : 'border border-red-900 text-red-500 hover:bg-red-900/30'}`}>
                       {confirmDeleteId === selectedIndividuo.id ? 'Confirmar Exclusão' : 'Excluir Ficha'}
                     </button>
                   </div>
@@ -370,7 +416,7 @@ export default function SentinelaApp() {
                   <div className="bg-slate-950 p-3 rounded border border-slate-800">
                     <span className="text-slate-500 block text-xs mb-1">CPF (Clique para copiar)</span>
                     <div 
-                      className={`flex items-center gap-2 ${selectedIndividuo.cpf ? 'cursor-pointer text-cyan-400 hover:text-cyan-300 font-medium' : 'text-slate-200'}`}
+                      className={`flex items-center gap-2 transition-colors ${selectedIndividuo.cpf ? 'cursor-pointer text-cyan-400 hover:text-cyan-300 font-medium' : 'text-slate-200'}`}
                       onClick={() => copiarCPF(selectedIndividuo.cpf)}
                       title={selectedIndividuo.cpf ? "Clique para copiar o CPF" : ""}
                     >
