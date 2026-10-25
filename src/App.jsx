@@ -16,7 +16,7 @@ export default function SentinelaApp() {
   const [loading, setLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   
-  const [formData, setFormData] = useState({ nome: '', vulgo: '', cpf: '', rg: '', artigos: '', modus_operandi: '' });
+  const [formData, setFormData] = useState({ nome: '', vulgo: '', cpf: '', rg: '', endereco: '', artigos: '', modus_operandi: '' });
   const [formFotos, setFormFotos] = useState([]);
   const [novaNota, setNovaNota] = useState('');
   const [bnmpCopied, setBnmpCopied] = useState(false);
@@ -105,6 +105,7 @@ export default function SentinelaApp() {
         vulgo: formData.vulgo,
         cpf: formData.cpf,
         rg: formData.rg,
+        endereco: formData.endereco,
         artigos_criminais: arrayArtigos,
         modus_operandi: formData.modus_operandi,
         criado_por: nomeUsuario,
@@ -136,7 +137,7 @@ export default function SentinelaApp() {
 
     await carregarDados();
     setView('dashboard');
-    setFormData({ nome: '', vulgo: '', cpf: '', rg: '', artigos: '', modus_operandi: '' });
+    setFormData({ nome: '', vulgo: '', cpf: '', rg: '', endereco: '', artigos: '', modus_operandi: '' });
     setFormFotos([]);
     setLoading(false);
   };
@@ -242,7 +243,7 @@ export default function SentinelaApp() {
             <div className="flex gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-3 w-5 h-5 text-slate-500" />
-                <input type="text" placeholder="Pesquisar..." className="w-full bg-slate-900 border border-slate-700 rounded-lg py-3 pl-10 pr-4 outline-none focus:border-cyan-500" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                <input type="text" placeholder="Pesquisar por nome, vulgo ou CPF..." className="w-full bg-slate-900 border border-slate-700 rounded-lg py-3 pl-10 pr-4 outline-none focus:border-cyan-500" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
               </div>
               <button onClick={() => setView('form')} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 rounded-lg font-medium flex items-center gap-2">
                 <Plus className="w-5 h-5" /> Nova Ficha
@@ -279,7 +280,9 @@ export default function SentinelaApp() {
               <input type="text" placeholder="Nome Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
               <input type="text" placeholder="Vulgo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.vulgo} onChange={e => setFormData({...formData, vulgo: e.target.value})} />
               <input type="text" placeholder="CPF" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.cpf} onChange={e => setFormData({...formData, cpf: e.target.value})} />
-              <input type="text" placeholder="Artigos Penais (separados por vírgula)" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.artigos} onChange={e => setFormData({...formData, artigos: e.target.value})} />
+              <input type="text" placeholder="RG" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.rg} onChange={e => setFormData({...formData, rg: e.target.value})} />
+              <input type="text" placeholder="Endereço Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.endereco} onChange={e => setFormData({...formData, endereco: e.target.value})} />
+              <input type="text" placeholder="Artigos Penais (separados por vírgula)" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.artigos} onChange={e => setFormData({...formData, artigos: e.target.value})} />
             </div>
             <textarea placeholder="Modus Operandi" className="w-full bg-slate-950 border border-slate-800 rounded p-3 h-24 mb-4 outline-none" value={formData.modus_operandi} onChange={e => setFormData({...formData, modus_operandi: e.target.value})} />
             
@@ -310,57 +313,88 @@ export default function SentinelaApp() {
             <button onClick={() => setView('dashboard')} className="text-slate-400 text-sm">← Voltar</button>
             
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-              <div className="bg-slate-950 p-6 flex justify-between">
+              <div className="bg-slate-950 p-6 flex flex-col md:flex-row justify-between gap-4">
                 <div className="flex gap-4">
-                  {selectedIndividuo.fotos_individuos?.[0] ? <img src={selectedIndividuo.fotos_individuos[0].url_storage} className="w-20 h-20 rounded object-cover" /> : <div className="w-20 h-20 bg-slate-800 rounded flex items-center justify-center"><User className="text-slate-600"/></div>}
-                  <div>
+                  {selectedIndividuo.fotos_individuos?.[0] ? <img src={selectedIndividuo.fotos_individuos[0].url_storage} className="w-24 h-24 rounded object-cover" /> : <div className="w-24 h-24 bg-slate-800 rounded flex items-center justify-center"><User className="text-slate-600 w-10 h-10"/></div>}
+                  <div className="flex flex-col justify-center">
                     <h2 className="text-2xl font-bold">{selectedIndividuo.nome}</h2>
-                    <p className="text-cyan-400">Vulgo: {selectedIndividuo.vulgo}</p>
-                    <p className="text-sm text-slate-400">Adicionado por: {selectedIndividuo.criado_por}</p>
+                    <p className="text-cyan-400 font-medium">Vulgo: {selectedIndividuo.vulgo || 'Não informado'}</p>
+                    <p className="text-xs text-slate-500 mt-1">Ficha criada por: {selectedIndividuo.criado_por}</p>
                   </div>
                 </div>
                 {selectedIndividuo.user_id === session.user.id && (
-                  <button onClick={() => handleDelete(selectedIndividuo.id)} className={`px-4 py-2 rounded text-sm ${confirmDeleteId === selectedIndividuo.id ? 'bg-red-600 text-white' : 'border border-red-900 text-red-500'}`}>
-                    {confirmDeleteId === selectedIndividuo.id ? 'Confirmar Exclusão' : 'Excluir Ficha'}
-                  </button>
+                  <div className="flex items-start">
+                    <button onClick={() => handleDelete(selectedIndividuo.id)} className={`px-4 py-2 rounded text-sm w-full md:w-auto ${confirmDeleteId === selectedIndividuo.id ? 'bg-red-600 text-white' : 'border border-red-900 text-red-500'}`}>
+                      {confirmDeleteId === selectedIndividuo.id ? 'Confirmar Exclusão' : 'Excluir Ficha'}
+                    </button>
+                  </div>
                 )}
               </div>
+              
+              {/* Novo Painel de Dados Pessoais */}
+              <div className="bg-slate-900 border-t border-slate-800 p-6">
+                <h3 className="text-sm font-bold text-slate-500 mb-4 tracking-wider">DADOS DE IDENTIFICAÇÃO</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                    <span className="text-slate-500 block text-xs mb-1">CPF</span>
+                    <span className="text-slate-200">{selectedIndividuo.cpf || 'Não informado'}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                    <span className="text-slate-500 block text-xs mb-1">RG</span>
+                    <span className="text-slate-200">{selectedIndividuo.rg || 'Não informado'}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded border border-slate-800 md:col-span-2">
+                    <span className="text-slate-500 block text-xs mb-1">Endereço</span>
+                    <span className="text-slate-200">{selectedIndividuo.endereco || 'Não informado'}</span>
+                  </div>
+                  <div className="bg-slate-950 p-3 rounded border border-slate-800 md:col-span-2">
+                    <span className="text-slate-500 block text-xs mb-1">Artigos Penais</span>
+                    <span className="text-cyan-400 font-medium">{selectedIndividuo.artigos_criminais?.length > 0 ? selectedIndividuo.artigos_criminais.join(', ') : 'Nenhum registo'}</span>
+                  </div>
+                </div>
+              </div>
 
-              <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-8 border-t border-slate-800">
                 <div className="md:col-span-2 space-y-6">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-500 mb-2">MODUS OPERANDI</h3>
-                    <p className="bg-slate-950 p-4 border border-slate-800 rounded text-sm min-h-[100px]">{selectedIndividuo.modus_operandi}</p>
+                    <h3 className="text-sm font-bold text-slate-500 mb-2 tracking-wider">MODUS OPERANDI</h3>
+                    <p className="bg-slate-950 p-4 border border-slate-800 rounded text-sm min-h-[100px] text-slate-300">{selectedIndividuo.modus_operandi || 'Nenhuma informação detalhada.'}</p>
                   </div>
-                  <div className="bg-slate-950/50 p-4 border border-slate-800 rounded flex justify-between">
+                  <div className="bg-slate-950/50 p-4 border border-slate-800 rounded flex justify-between items-center">
                     <div>
-                      <h4 className="text-sm font-bold">Consulta BNMP</h4>
-                      <p className="text-xs text-slate-500">Copia CPF ({selectedIndividuo.cpf}) e abre o site.</p>
+                      <h4 className="text-sm font-bold text-slate-200">Consulta Rápida BNMP</h4>
+                      <p className="text-xs text-slate-500">Copia o CPF e abre o portal do CNJ.</p>
                     </div>
-                    <button onClick={() => handleBNMP(selectedIndividuo.cpf)} className="bg-slate-800 px-4 py-2 rounded text-sm flex gap-2">
+                    <button onClick={() => handleBNMP(selectedIndividuo.cpf)} className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded text-sm flex gap-2 transition-colors">
                       {bnmpCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <ExternalLink className="w-4 h-4" />}
-                      Consultar
+                      Consultar Portal
                     </button>
                   </div>
                   {selectedIndividuo.fotos_individuos?.length > 0 && (
-                    <div className="grid grid-cols-4 gap-2">
-                      {selectedIndividuo.fotos_individuos.map((f, i) => <img key={i} src={f.url_storage} className="aspect-square object-cover rounded border border-slate-800" />)}
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-500 mb-2 tracking-wider">GALERIA DE FOTOS</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {selectedIndividuo.fotos_individuos.map((f, i) => <img key={i} src={f.url_storage} className="aspect-square w-full object-cover rounded border border-slate-800" />)}
+                      </div>
                     </div>
                   )}
                 </div>
 
                 <div className="bg-slate-950 rounded border border-slate-800 p-4 flex flex-col h-[400px]">
-                  <h3 className="text-sm font-bold text-slate-400 mb-3">Informações Adicionais</h3>
-                  <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+                  <h3 className="text-sm font-bold text-slate-400 mb-3 tracking-wider">NOTAS ADICIONAIS</h3>
+                  <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-1">
+                    {selectedIndividuo.observacoes_individuos?.length === 0 && (
+                      <p className="text-xs text-slate-600 text-center mt-10">Sem notas adicionadas.</p>
+                    )}
                     {selectedIndividuo.observacoes_individuos?.map((obs, i) => (
-                      <div className="bg-slate-900 p-3 rounded text-sm border border-slate-800">
-                        <p>{obs.observacao}</p>
-                        <p className="text-[10px] text-cyan-500 mt-2">{obs.autor_nome}</p>
+                      <div key={i} className="bg-slate-900 p-3 rounded text-sm border border-slate-800">
+                        <p className="text-slate-300">{obs.observacao}</p>
+                        <p className="text-[10px] text-cyan-500 mt-2 font-medium">{obs.autor_nome}</p>
                       </div>
                     ))}
                   </div>
-                  <textarea placeholder="Qualquer policial pode adicionar notas..." className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm h-16 outline-none focus:border-cyan-500" value={novaNota} onChange={e => setNovaNota(e.target.value)} />
-                  <button onClick={handleAddNote} className="w-full bg-cyan-600 hover:bg-cyan-500 mt-2 py-2 rounded text-sm text-white font-medium">Anexar Nota</button>
+                  <textarea placeholder="Adicionar nova informação..." className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm h-16 outline-none focus:border-cyan-500 resize-none" value={novaNota} onChange={e => setNovaNota(e.target.value)} />
+                  <button onClick={handleAddNote} className="w-full bg-cyan-600 hover:bg-cyan-500 mt-2 py-2 rounded text-sm text-white font-medium transition-colors">Anexar Nota</button>
                 </div>
               </div>
             </div>
