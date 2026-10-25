@@ -1,45 +1,58 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Search, Plus, User, FileText, Camera, Upload, Trash2, ExternalLink, Check, AlertTriangle, AlertCircle } from 'lucide-react';
+import { Shield, Search, Plus, User, FileText, Camera, Upload, Trash2, ExternalLink, Check, LogOut, Lock } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
-const OPERADORES = [
-  { id: '1', nome: 'Investigador Silva', matricula: '1001' },
-  { id: '2', nome: 'Agente Santos', matricula: '1002' },
-  { id: '3', nome: 'Perito Aragão', matricula: '1003' }
-];
-
 export default function SentinelaApp() {
-  const [currentUser, setCurrentUser] = useState(OPERADORES[0]);
+  const [session, setSession] = useState(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
   const [view, setView] = useState('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndividuo, setSelectedIndividuo] = useState(null);
   const [individuos, setIndividuos] = useState([]);
   const [loading, setLoading] = useState(false);
-  
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   
   const [formData, setFormData] = useState({ nome: '', vulgo: '', cpf: '', rg: '', artigos: '', modus_operandi: '' });
-  const [formFotos, setFormFotos] = useState([]); // Base64 para preview
+  const [formFotos, setFormFotos] = useState([]);
   const [novaNota, setNovaNota] = useState('');
   const [bnmpCopied, setBnmpCopied] = useState(false);
 
-  // Busca dados do Supabase
+  // Monitora Autenticação
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+  }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) alert('Erro ao entrar: ' + error.message);
+    setAuthLoading(false);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setView('dashboard');
+  };
+
   const carregarDados = async () => {
+    if (!session) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('individuos')
       .select('*, fotos_individuos(url_storage), observacoes_individuos(observacao, autor_nome, criado_em)')
       .order('criado_em', { ascending: false });
-
-    if (!error && data) {
-      setIndividuos(data);
-    }
+    if (!error && data) setIndividuos(data);
     setLoading(false);
   };
 
   useEffect(() => {
-    carregarDados();
-  }, []);
+    if (session) carregarDados();
+  }, [session]);
 
   const processImage = (file) => {
     return new Promise((resolve) => {
@@ -72,9 +85,10 @@ export default function SentinelaApp() {
   const handleSave = async () => {
     if (!formData.nome) return;
     setLoading(true);
-
-    // 1. Salvar indivíduo
+    
     const arrayArtigos = formData.artigos.split(',').map(a => a.trim()).filter(Boolean);
+    const nomeUsuario = session.user.email.split('@')[0];
+
     const { data: indData, error: indError } = await supabase
       .from('individuos')
       .insert([{
@@ -84,14 +98,14 @@ export default function SentinelaApp() {
         rg: formData.rg,
         artigos_criminais: arrayArtigos,
         modus_operandi: formData.modus_operandi,
-        criado_por: currentUser.nome
+        criado_por: nomeUsuario,
+        user_id: session.user.id
       }])
       .select()
       .single();
 
     if (indError) { alert('Erro ao salvar'); setLoading(false); return; }
 
-    // 2. Enviar fotos
     for (const fotoBase64 of formFotos) {
       const blob = await fetch(fotoBase64).then(res => res.blob());
       const fileName = `${indData.id}/${Date.now()}.jpg`;
@@ -105,7 +119,8 @@ export default function SentinelaApp() {
         await supabase.from('fotos_individuos').insert([{
           individuo_id: indData.id,
           url_storage: publicUrl,
-          enviado_por: currentUser.nome
+          enviado_por: nomeUsuario,
+          user_id: session.user.id
         }]);
       }
     }
@@ -131,17 +146,18 @@ export default function SentinelaApp() {
 
   const handleAddNote = async () => {
     if (!novaNota.trim()) return;
+    const nomeUsuario = session.user.email.split('@')[0];
     
     await supabase.from('observacoes_individuos').insert([{
       individuo_id: selectedIndividuo.id,
-      autor_nome: currentUser.nome,
-      observacao: novaNota
+      autor_nome: nomeUsuario,
+      observacao: novaNota,
+      user_id: session.user.id
     }]);
 
     setNovaNota('');
     carregarDados();
     
-    // Atualiza a visualização da tela atual
     const { data } = await supabase
       .from('individuos')
       .select('*, fotos_individuos(url_storage), observacoes_individuos(observacao, autor_nome, criado_em)')
@@ -156,6 +172,27 @@ export default function SentinelaApp() {
     setTimeout(() => setBnmpCopied(false), 2000);
     window.open('https://portalbnmp.cnj.jus.br/', '_blank');
   };
+
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <form onSubmit={handleLogin} className="bg-slate-900 border border-slate-800 p-8 rounded-xl w-full max-w-md space-y-6">
+          <div className="flex flex-col items-center gap-3 mb-8">
+            <div className="bg-cyan-500/10 p-4 rounded-full border border-cyan-500/30">
+              <Shield className="text-cyan-400 w-10 h-10" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-100">SENTINELA</h1>
+            <p className="text-sm text-cyan-500">Acesso Restrito</p>
+          </div>
+          <input type="email" placeholder="E-mail funcional" required className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded p-3 outline-none focus:border-cyan-500" value={email} onChange={e => setEmail(e.target.value)} />
+          <input type="password" placeholder="Senha" required className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded p-3 outline-none focus:border-cyan-500" value={password} onChange={e => setPassword(e.target.value)} />
+          <button type="submit" disabled={authLoading} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2">
+            <Lock className="w-4 h-4" /> {authLoading ? 'Autenticando...' : 'Entrar no Sistema'}
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   const filteredIndividuos = individuos.filter(ind => 
     ind.nome.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -176,11 +213,11 @@ export default function SentinelaApp() {
               <p className="text-xs text-cyan-500 font-medium">SISTEMA INTEGRADO DE PESQUISAS DE ABORDADOS</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 bg-slate-950 p-2 rounded-lg border border-slate-800">
-            <User className="w-4 h-4 text-slate-400" />
-            <select className="bg-transparent text-sm text-slate-300 outline-none" value={currentUser.id} onChange={(e) => setCurrentUser(OPERADORES.find(op => op.id === e.target.value))}>
-              {OPERADORES.map(op => <option key={op.id} value={op.id} className="bg-slate-900">{op.nome}</option>)}
-            </select>
+          <div className="flex items-center gap-4 bg-slate-950 p-2 px-4 rounded-lg border border-slate-800">
+            <span className="text-sm text-slate-400">{session.user.email}</span>
+            <button onClick={handleLogout} className="text-red-400 hover:text-red-300 flex items-center gap-1 text-sm border-l border-slate-800 pl-4">
+              <LogOut className="w-4 h-4" /> Sair
+            </button>
           </div>
         </div>
       </header>
@@ -211,7 +248,7 @@ export default function SentinelaApp() {
                       <div className="overflow-hidden">
                         <h3 className="font-bold text-slate-100 truncate">{ind.nome}</h3>
                         <p className="text-sm text-cyan-400 truncate">Vulgo: {ind.vulgo || 'N/A'}</p>
-                        <p className="text-xs text-slate-500 mt-2">CPF: {ind.cpf || 'Não informado'}</p>
+                        <p className="text-xs text-slate-500 mt-2">Adicionado por: {ind.criado_por}</p>
                       </div>
                     </div>
                   </div>
@@ -268,7 +305,8 @@ export default function SentinelaApp() {
                     <p className="text-sm text-slate-400">Adicionado por: {selectedIndividuo.criado_por}</p>
                   </div>
                 </div>
-                {selectedIndividuo.criado_por === currentUser.nome && (
+                {/* Verifica se o usuário atual é o criador da ficha para mostrar a lixeira */}
+                {selectedIndividuo.user_id === session.user.id && (
                   <button onClick={() => handleDelete(selectedIndividuo.id)} className={`px-4 py-2 rounded text-sm ${confirmDeleteId === selectedIndividuo.id ? 'bg-red-600 text-white' : 'border border-red-900 text-red-500'}`}>
                     {confirmDeleteId === selectedIndividuo.id ? 'Confirmar Exclusão' : 'Excluir Ficha'}
                   </button>
@@ -279,7 +317,7 @@ export default function SentinelaApp() {
                 <div className="md:col-span-2 space-y-6">
                   <div>
                     <h3 className="text-sm font-bold text-slate-500 mb-2">MODUS OPERANDI</h3>
-                    <p className="bg-slate-950 p-4 border border-slate-800 rounded text-sm">{selectedIndividuo.modus_operandi}</p>
+                    <p className="bg-slate-950 p-4 border border-slate-800 rounded text-sm min-h-[100px]">{selectedIndividuo.modus_operandi}</p>
                   </div>
                   <div className="bg-slate-950/50 p-4 border border-slate-800 rounded flex justify-between">
                     <div>
@@ -308,8 +346,8 @@ export default function SentinelaApp() {
                       </div>
                     ))}
                   </div>
-                  <textarea placeholder="Nova observação..." className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm h-16 outline-none" value={novaNota} onChange={e => setNovaNota(e.target.value)} />
-                  <button onClick={handleAddNote} className="w-full bg-cyan-600 mt-2 py-2 rounded text-sm">Anexar</button>
+                  <textarea placeholder="Qualquer policial pode adicionar notas..." className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm h-16 outline-none focus:border-cyan-500" value={novaNota} onChange={e => setNovaNota(e.target.value)} />
+                  <button onClick={handleAddNote} className="w-full bg-cyan-600 hover:bg-cyan-500 mt-2 py-2 rounded text-sm text-white font-medium">Anexar Nota</button>
                 </div>
               </div>
             </div>
