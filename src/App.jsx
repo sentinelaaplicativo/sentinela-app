@@ -7,6 +7,7 @@ export default function SentinelaApp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
 
   const [view, setView] = useState('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
@@ -20,17 +21,25 @@ export default function SentinelaApp() {
   const [novaNota, setNovaNota] = useState('');
   const [bnmpCopied, setBnmpCopied] = useState(false);
 
-  // Monitora Autenticação
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     supabase.auth.onAuthStateChange((_event, session) => setSession(session));
   }, []);
 
-  const handleLogin = async (e) => {
+  const handleAuth = async (e) => {
     e.preventDefault();
     setAuthLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) alert('Erro ao entrar: ' + error.message);
+    if (isLogin) {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert('Erro ao entrar: ' + error.message);
+    } else {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) alert('Erro ao cadastrar: ' + error.message);
+      else {
+        alert('Cadastro realizado com sucesso! Pode entrar.');
+        setIsLogin(true);
+      }
+    }
     setAuthLoading(false);
   };
 
@@ -176,19 +185,24 @@ export default function SentinelaApp() {
   if (!session) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <form onSubmit={handleLogin} className="bg-slate-900 border border-slate-800 p-8 rounded-xl w-full max-w-md space-y-6">
+        <form onSubmit={handleAuth} className="bg-slate-900 border border-slate-800 p-8 rounded-xl w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-3 mb-8">
             <div className="bg-cyan-500/10 p-4 rounded-full border border-cyan-500/30">
               <Shield className="text-cyan-400 w-10 h-10" />
             </div>
             <h1 className="text-2xl font-bold text-slate-100">SENTINELA</h1>
-            <p className="text-sm text-cyan-500">Acesso Restrito</p>
+            <p className="text-sm text-cyan-500">{isLogin ? 'Acesso Restrito' : 'Cadastro de Novo Policial'}</p>
           </div>
           <input type="email" placeholder="E-mail funcional" required className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded p-3 outline-none focus:border-cyan-500" value={email} onChange={e => setEmail(e.target.value)} />
-          <input type="password" placeholder="Senha" required className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded p-3 outline-none focus:border-cyan-500" value={password} onChange={e => setPassword(e.target.value)} />
+          <input type="password" placeholder="Senha (mínimo 6 caracteres)" required className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded p-3 outline-none focus:border-cyan-500" value={password} onChange={e => setPassword(e.target.value)} />
           <button type="submit" disabled={authLoading} className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2">
-            <Lock className="w-4 h-4" /> {authLoading ? 'Autenticando...' : 'Entrar no Sistema'}
+            <Lock className="w-4 h-4" /> {authLoading ? 'Processando...' : (isLogin ? 'Entrar no Sistema' : 'Criar Conta')}
           </button>
+          <div className="text-center mt-4">
+            <button type="button" onClick={() => setIsLogin(!isLogin)} className="text-slate-400 hover:text-cyan-400 text-sm">
+              {isLogin ? 'Não tem conta? Cadastre-se aqui' : 'Já tem conta? Faça login'}
+            </button>
+          </div>
         </form>
       </div>
     );
@@ -305,7 +319,6 @@ export default function SentinelaApp() {
                     <p className="text-sm text-slate-400">Adicionado por: {selectedIndividuo.criado_por}</p>
                   </div>
                 </div>
-                {/* Verifica se o usuário atual é o criador da ficha para mostrar a lixeira */}
                 {selectedIndividuo.user_id === session.user.id && (
                   <button onClick={() => handleDelete(selectedIndividuo.id)} className={`px-4 py-2 rounded text-sm ${confirmDeleteId === selectedIndividuo.id ? 'bg-red-600 text-white' : 'border border-red-900 text-red-500'}`}>
                     {confirmDeleteId === selectedIndividuo.id ? 'Confirmar Exclusão' : 'Excluir Ficha'}
@@ -340,7 +353,7 @@ export default function SentinelaApp() {
                   <h3 className="text-sm font-bold text-slate-400 mb-3">Informações Adicionais</h3>
                   <div className="flex-1 overflow-y-auto space-y-3 mb-4">
                     {selectedIndividuo.observacoes_individuos?.map((obs, i) => (
-                      <div key={i} className="bg-slate-900 p-3 rounded text-sm border border-slate-800">
+                      <div className="bg-slate-900 p-3 rounded text-sm border border-slate-800">
                         <p>{obs.observacao}</p>
                         <p className="text-[10px] text-cyan-500 mt-2">{obs.autor_nome}</p>
                       </div>
