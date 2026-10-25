@@ -91,7 +91,7 @@ export default function SentinelaApp() {
     setFormFotos(prev => [...prev, ...processedFotos]);
   };
 
-  // ---------------- FUNÇÕES DE FORMATAÇÃO ----------------
+  // Funções de formatação automática APENAS numéricas enquanto digita
   const formatCPF = (value) => {
     return value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})/, '$1-$2').replace(/(-\d{2})\d+?$/, '$1');
   };
@@ -104,22 +104,33 @@ export default function SentinelaApp() {
     return v;
   };
 
-  const formatCapitalizeWords = (value) => {
+  // Funções de letras maiúsculas a serem chamadas apenas no momento de salvar
+  const applyCapitalizeWords = (value) => {
     if (!value) return '';
-    return value.replace(/(^\w)|(\s+\w)/g, match => match.toUpperCase());
+    const preposicoes = ['de', 'da', 'do', 'das', 'dos', 'com', 'em', 'na', 'no', 'nas', 'nos'];
+    return value.toLowerCase().split(' ').map((palavra, index) => {
+      if (preposicoes.includes(palavra) && index !== 0) return palavra;
+      return palavra.charAt(0).toUpperCase() + palavra.slice(1);
+    }).join(' ');
   };
 
-  const formatCapitalizeFirst = (value) => {
+  const applyCapitalizeFirst = (value) => {
     if (!value) return '';
     return value.charAt(0).toUpperCase() + value.slice(1);
   };
-  // -------------------------------------------------------
 
   const handleSave = async () => {
     if (!formData.nome) return;
     setLoading(true);
     
-    const arrayArtigos = typeof formData.artigos === 'string' ? formData.artigos.split(',').map(a => a.trim()).filter(Boolean) : formData.artigos;
+    // Aplica formatação de texto apenas no momento de enviar para a base de dados
+    const nomeFormatado = applyCapitalizeWords(formData.nome);
+    const vulgoFormatado = applyCapitalizeWords(formData.vulgo);
+    const enderecoFormatado = applyCapitalizeWords(formData.endereco);
+    const modusFormatado = applyCapitalizeFirst(formData.modus_operandi);
+    const artigosFormatadosStr = applyCapitalizeFirst(formData.artigos);
+    
+    const arrayArtigos = typeof artigosFormatadosStr === 'string' ? artigosFormatadosStr.split(',').map(a => a.trim()).filter(Boolean) : artigosFormatadosStr;
     const nomeUsuario = session.user.email.split('@')[0];
     let indId;
 
@@ -127,13 +138,13 @@ export default function SentinelaApp() {
       const { error: indError } = await supabase
         .from('individuos')
         .update({
-          nome: formData.nome,
-          vulgo: formData.vulgo,
+          nome: nomeFormatado,
+          vulgo: vulgoFormatado,
           cpf: formData.cpf,
           rg: formData.rg,
-          endereco: formData.endereco,
+          endereco: enderecoFormatado,
           artigos_criminais: arrayArtigos,
-          modus_operandi: formData.modus_operandi
+          modus_operandi: modusFormatado
         })
         .eq('id', selectedIndividuo.id);
 
@@ -143,13 +154,13 @@ export default function SentinelaApp() {
       const { data: indData, error: indError } = await supabase
         .from('individuos')
         .insert([{
-          nome: formData.nome,
-          vulgo: formData.vulgo,
+          nome: nomeFormatado,
+          vulgo: vulgoFormatado,
           cpf: formData.cpf,
           rg: formData.rg,
-          endereco: formData.endereco,
+          endereco: enderecoFormatado,
           artigos_criminais: arrayArtigos,
-          modus_operandi: formData.modus_operandi,
+          modus_operandi: modusFormatado,
           criado_por: nomeUsuario,
           user_id: session.user.id
         }])
@@ -207,11 +218,12 @@ export default function SentinelaApp() {
   const handleAddNote = async () => {
     if (!novaNota.trim()) return;
     const nomeUsuario = session.user.email.split('@')[0];
+    const notaFormatada = applyCapitalizeFirst(novaNota);
     
     await supabase.from('observacoes_individuos').insert([{
       individuo_id: selectedIndividuo.id,
       autor_nome: nomeUsuario,
-      observacao: novaNota,
+      observacao: notaFormatada,
       user_id: session.user.id
     }]);
 
@@ -301,7 +313,7 @@ export default function SentinelaApp() {
             </div>
           </div>
           <div className="flex items-center gap-4 bg-slate-950 p-2 px-4 rounded-lg border border-slate-800">
-            <span className="text-sm text-slate-400">{session.user.email}</span>
+            <span className="text-sm text-slate-400 hidden md:inline">{session.user.email}</span>
             <button onClick={handleLogout} className="text-red-400 hover:text-red-300 flex items-center gap-1 text-sm border-l border-slate-800 pl-4">
               <LogOut className="w-4 h-4" /> Sair
             </button>
@@ -350,15 +362,16 @@ export default function SentinelaApp() {
             <h2 className="text-xl font-bold mb-6 border-b border-slate-800 pb-4">
               {view === 'edit' ? 'Editar Ficha' : 'Nova Ficha'}
             </h2>
+            {/* O texto inserido aqui fica normal enquanto escreve, e é capitalizado ao salvar! */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <input type="text" placeholder="Nome Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.nome} onChange={e => setFormData({...formData, nome: formatCapitalizeWords(e.target.value)})} />
-              <input type="text" placeholder="Vulgo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.vulgo} onChange={e => setFormData({...formData, vulgo: formatCapitalizeWords(e.target.value)})} />
+              <input type="text" placeholder="Nome Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
+              <input type="text" placeholder="Vulgo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.vulgo} onChange={e => setFormData({...formData, vulgo: e.target.value})} />
               <input type="text" placeholder="CPF" maxLength="14" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.cpf} onChange={e => setFormData({...formData, cpf: formatCPF(e.target.value)})} />
               <input type="text" placeholder="RG" maxLength="12" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.rg} onChange={e => setFormData({...formData, rg: formatRG(e.target.value)})} />
-              <input type="text" placeholder="Endereço Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.endereco} onChange={e => setFormData({...formData, endereco: formatCapitalizeWords(e.target.value)})} />
-              <input type="text" placeholder="Artigos Penais (separados por vírgula)" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.artigos} onChange={e => setFormData({...formData, artigos: formatCapitalizeFirst(e.target.value)})} />
+              <input type="text" placeholder="Endereço Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.endereco} onChange={e => setFormData({...formData, endereco: e.target.value})} />
+              <input type="text" placeholder="Artigos Penais (separados por vírgula)" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.artigos} onChange={e => setFormData({...formData, artigos: e.target.value})} />
             </div>
-            <textarea placeholder="Modus Operandi" className="w-full bg-slate-950 border border-slate-800 rounded p-3 h-24 mb-4 outline-none" value={formData.modus_operandi} onChange={e => setFormData({...formData, modus_operandi: formatCapitalizeFirst(e.target.value)})} />
+            <textarea placeholder="Modus Operandi" className="w-full bg-slate-950 border border-slate-800 rounded p-3 h-24 mb-4 outline-none" value={formData.modus_operandi} onChange={e => setFormData({...formData, modus_operandi: e.target.value})} />
             
             <div className="bg-slate-950 p-4 border border-slate-800 rounded mb-4">
               <p className="text-sm mb-2">{view === 'edit' ? 'Adicionar Novas Fotos (as antigas serão mantidas)' : 'Fotos'}</p>
@@ -442,7 +455,8 @@ export default function SentinelaApp() {
                 <div className="md:col-span-2 space-y-6">
                   <div>
                     <h3 className="text-sm font-bold text-slate-500 mb-2 tracking-wider">MODUS OPERANDI</h3>
-                    <p className="bg-slate-950 p-4 border border-slate-800 rounded text-sm min-h-[100px] text-slate-300">{selectedIndividuo.modus_operandi || 'Nenhuma informação detalhada.'}</p>
+                    {/* Alterado para whitespace-pre-wrap para desenhar as quebras de linha dadas pelo celular */}
+                    <p className="bg-slate-950 p-4 border border-slate-800 rounded text-sm min-h-[100px] text-slate-300 whitespace-pre-wrap">{selectedIndividuo.modus_operandi || 'Nenhuma informação detalhada.'}</p>
                   </div>
                   <div className="bg-slate-950/50 p-4 border border-slate-800 rounded flex justify-between items-center">
                     <div>
@@ -472,12 +486,13 @@ export default function SentinelaApp() {
                     )}
                     {selectedIndividuo.observacoes_individuos?.map((obs, i) => (
                       <div key={i} className="bg-slate-900 p-3 rounded text-sm border border-slate-800">
-                        <p className="text-slate-300">{obs.observacao}</p>
+                        {/* Alterado para desenhar as quebras de linha nas notas */}
+                        <p className="text-slate-300 whitespace-pre-wrap">{obs.observacao}</p>
                         <p className="text-[10px] text-cyan-500 mt-2 font-medium">{obs.autor_nome}</p>
                       </div>
                     ))}
                   </div>
-                  <textarea placeholder="Adicionar nova informação..." className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm h-16 outline-none focus:border-cyan-500 resize-none" value={novaNota} onChange={e => setNovaNota(formatCapitalizeFirst(e.target.value))} />
+                  <textarea placeholder="Adicionar nova informação..." className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm h-16 outline-none focus:border-cyan-500 resize-none" value={novaNota} onChange={e => setNovaNota(e.target.value)} />
                   <button onClick={handleAddNote} className="w-full bg-cyan-600 hover:bg-cyan-500 mt-2 py-2 rounded text-sm text-white font-medium transition-colors">Anexar Nota</button>
                 </div>
               </div>
