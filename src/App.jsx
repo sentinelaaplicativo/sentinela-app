@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Search, Plus, User, FileText, Camera, Upload, Trash2, ExternalLink, Check, LogOut, Lock } from 'lucide-react';
+import { Shield, Search, Plus, User, Upload, Trash2, ExternalLink, Check, LogOut, Lock, Copy } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 export default function SentinelaApp() {
@@ -91,6 +91,34 @@ export default function SentinelaApp() {
     setFormFotos(prev => [...prev, ...processedFotos]);
   };
 
+  // Funções de formatação automática
+  const formatCPF = (value) => {
+    return value
+      .replace(/\D/g, '')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})/, '$1-$2')
+      .replace(/(-\d{2})\d+?$/, '$1');
+  };
+
+  const formatRG = (value) => {
+    let v = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    if (v.length <= 9) {
+      v = v.replace(/(\d{2})(\d)/, '$1.$2');
+      v = v.replace(/(\d{3})(\d)/, '$1.$2');
+      v = v.replace(/(\d{3})([a-zA-Z0-9])$/, '$1-$2');
+    }
+    return v;
+  };
+
+  const formatEndereco = (value) => {
+    const preposicoes = ['de', 'da', 'do', 'das', 'dos', 'com', 'em', 'na', 'no', 'nas', 'nos'];
+    return value.toLowerCase().split(' ').map((palavra, index) => {
+      if (preposicoes.includes(palavra) && index !== 0) return palavra;
+      return palavra.charAt(0).toUpperCase() + palavra.slice(1);
+    }).join(' ');
+  };
+
   const handleSave = async () => {
     if (!formData.nome) return;
     setLoading(true);
@@ -176,10 +204,15 @@ export default function SentinelaApp() {
     if(data) setSelectedIndividuo(data);
   };
 
-  const handleBNMP = (cpf) => {
-    navigator.clipboard.writeText(cpf || selectedIndividuo.nome);
+  const copiarCPF = (cpf) => {
+    if (!cpf) return;
+    navigator.clipboard.writeText(cpf);
     setBnmpCopied(true);
     setTimeout(() => setBnmpCopied(false), 2000);
+  };
+
+  const handleBNMP = (cpf) => {
+    copiarCPF(cpf || selectedIndividuo.nome);
     window.open('https://portalbnmp.cnj.jus.br/', '_blank');
   };
 
@@ -279,9 +312,9 @@ export default function SentinelaApp() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <input type="text" placeholder="Nome Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
               <input type="text" placeholder="Vulgo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.vulgo} onChange={e => setFormData({...formData, vulgo: e.target.value})} />
-              <input type="text" placeholder="CPF" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.cpf} onChange={e => setFormData({...formData, cpf: e.target.value})} />
-              <input type="text" placeholder="RG" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.rg} onChange={e => setFormData({...formData, rg: e.target.value})} />
-              <input type="text" placeholder="Endereço Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.endereco} onChange={e => setFormData({...formData, endereco: e.target.value})} />
+              <input type="text" placeholder="CPF" maxLength="14" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.cpf} onChange={e => setFormData({...formData, cpf: formatCPF(e.target.value)})} />
+              <input type="text" placeholder="RG" maxLength="12" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.rg} onChange={e => setFormData({...formData, rg: formatRG(e.target.value)})} />
+              <input type="text" placeholder="Endereço Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.endereco} onChange={e => setFormData({...formData, endereco: formatEndereco(e.target.value)})} />
               <input type="text" placeholder="Artigos Penais (separados por vírgula)" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.artigos} onChange={e => setFormData({...formData, artigos: e.target.value})} />
             </div>
             <textarea placeholder="Modus Operandi" className="w-full bg-slate-950 border border-slate-800 rounded p-3 h-24 mb-4 outline-none" value={formData.modus_operandi} onChange={e => setFormData({...formData, modus_operandi: e.target.value})} />
@@ -331,17 +364,23 @@ export default function SentinelaApp() {
                 )}
               </div>
               
-              {/* Novo Painel de Dados Pessoais */}
               <div className="bg-slate-900 border-t border-slate-800 p-6">
                 <h3 className="text-sm font-bold text-slate-500 mb-4 tracking-wider">DADOS DE IDENTIFICAÇÃO</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                   <div className="bg-slate-950 p-3 rounded border border-slate-800">
-                    <span className="text-slate-500 block text-xs mb-1">CPF</span>
-                    <span className="text-slate-200">{selectedIndividuo.cpf || 'Não informado'}</span>
+                    <span className="text-slate-500 block text-xs mb-1">CPF (Clique para copiar)</span>
+                    <div 
+                      className={`flex items-center gap-2 ${selectedIndividuo.cpf ? 'cursor-pointer text-cyan-400 hover:text-cyan-300 font-medium' : 'text-slate-200'}`}
+                      onClick={() => copiarCPF(selectedIndividuo.cpf)}
+                      title={selectedIndividuo.cpf ? "Clique para copiar o CPF" : ""}
+                    >
+                      <span>{selectedIndividuo.cpf || 'Não informado'}</span>
+                      {selectedIndividuo.cpf && (bnmpCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />)}
+                    </div>
                   </div>
                   <div className="bg-slate-950 p-3 rounded border border-slate-800">
                     <span className="text-slate-500 block text-xs mb-1">RG</span>
-                    <span className="text-slate-200">{selectedIndividuo.rg || 'Não informado'}</span>
+                    <span className="text-slate-200 font-medium">{selectedIndividuo.rg || 'Não informado'}</span>
                   </div>
                   <div className="bg-slate-950 p-3 rounded border border-slate-800 md:col-span-2">
                     <span className="text-slate-500 block text-xs mb-1">Endereço</span>
