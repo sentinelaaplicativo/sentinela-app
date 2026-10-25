@@ -32,13 +32,14 @@ export default function SentinelaApp() {
     supabase.auth.onAuthStateChange((_event, session) => setSession(session));
   }, []);
 
-  // Carrega Modelos de IA
+  // Carrega Modelos de IA diretamente da CDN pública
   useEffect(() => {
     const loadModels = async () => {
       try {
-        await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-        await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        const MODEL_URL = 'https://raw.githubusercontent.com/vladmandic/face-api/master/model';
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
         setModelsLoaded(true);
         console.log("Modelos de IA Carregados com Sucesso!");
       } catch (err) {
@@ -113,7 +114,6 @@ export default function SentinelaApp() {
     setFormFotos(prev => [...prev, ...processedFotos]);
   };
 
-  // Funções de formatação automática APENAS numéricas enquanto digita
   const formatCPF = (value) => value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})/, '$1-$2').replace(/(-\d{2})\d+?$/, '$1');
   const formatRG = (value) => {
     let v = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
@@ -144,12 +144,11 @@ export default function SentinelaApp() {
         return;
       }
 
-      // Formata o vetor para o pgvector do Supabase
       const descriptorStr = '[' + Array.from(detection.descriptor).join(',') + ']';
       
       const { data, error } = await supabase.rpc('buscar_rosto_parecido', {
         query_embedding: descriptorStr,
-        limite_similaridade: 0.4, // Grau de tolerância (0 a 1)
+        limite_similaridade: 0.4,
         quantidade: 10
       });
 
@@ -163,7 +162,6 @@ export default function SentinelaApp() {
           .in('id', ids);
           
         if (results) {
-          // Ordena pelos mais parecidos primeiro
           results.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
           setIndividuos(results);
         }
@@ -194,7 +192,6 @@ export default function SentinelaApp() {
     let indId;
     let faceDescriptorStr = null;
 
-    // Se anexou fotos, tenta extrair a biometria facial da PRIMEIRA foto
     if (formFotos.length > 0 && modelsLoaded) {
       try {
         const img = new Image();
@@ -219,7 +216,6 @@ export default function SentinelaApp() {
       modus_operandi: modusFormatado
     };
 
-    // Só atualiza o rosto se encontrou um novo rosto válido na foto
     if (faceDescriptorStr) {
       payload.face_descriptor = faceDescriptorStr;
     }
