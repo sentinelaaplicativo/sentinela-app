@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Shield, Search, Plus, User, Upload, ExternalLink, Check, LogOut, Lock, Copy, Edit } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Shield, Search, Plus, User, Upload, ExternalLink, Check, LogOut, Lock, Copy, Edit, Camera } from 'lucide-react';
 import { supabase } from './supabaseClient';
+import * as faceapi from '@vladmandic/face-api';
 
 export default function SentinelaApp() {
   const [session, setSession] = useState(null);
@@ -20,10 +21,31 @@ export default function SentinelaApp() {
   const [formFotos, setFormFotos] = useState([]);
   const [novaNota, setNovaNota] = useState('');
   const [bnmpCopied, setBnmpCopied] = useState(false);
+  
+  // IA State
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const fileInputSearchRef = useRef(null);
 
+  // Monitora Autenticação
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+  }, []);
+
+  // Carrega Modelos de IA
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
+        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+        await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        setModelsLoaded(true);
+        console.log("Modelos de IA Carregados com Sucesso!");
+      } catch (err) {
+        console.error("Erro ao carregar IA:", err);
+      }
+    };
+    loadModels();
   }, []);
 
   const handleAuth = async (e) => {
@@ -92,81 +114,124 @@ export default function SentinelaApp() {
   };
 
   // Funções de formatação automática APENAS numéricas enquanto digita
-  const formatCPF = (value) => {
-    return value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})/, '$1-$2').replace(/(-\d{2})\d+?$/, '$1');
-  };
-
+  const formatCPF = (value) => value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})/, '$1-$2').replace(/(-\d{2})\d+?$/, '$1');
   const formatRG = (value) => {
     let v = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-    if (v.length <= 9) {
-      v = v.replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})([a-zA-Z0-9])$/, '$1-$2');
-    }
+    if (v.length <= 9) v = v.replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})([a-zA-Z0-9])$/, '$1-$2');
     return v;
   };
-
-  // Funções de letras maiúsculas a serem chamadas apenas no momento de salvar
   const applyCapitalizeWords = (value) => {
     if (!value) return '';
     const preposicoes = ['de', 'da', 'do', 'das', 'dos', 'com', 'em', 'na', 'no', 'nas', 'nos'];
-    return value.toLowerCase().split(' ').map((palavra, index) => {
-      if (preposicoes.includes(palavra) && index !== 0) return palavra;
-      return palavra.charAt(0).toUpperCase() + palavra.slice(1);
-    }).join(' ');
+    return value.toLowerCase().split(' ').map((palavra, index) => (preposicoes.includes(palavra) && index !== 0) ? palavra : palavra.charAt(0).toUpperCase() + palavra.slice(1)).join(' ');
   };
+  const applyCapitalizeFirst = (value) => value ? value.charAt(0).toUpperCase() + value.slice(1) : '';
 
-  const applyCapitalizeFirst = (value) => {
-    if (!value) return '';
-    return value.charAt(0).toUpperCase() + value.slice(1);
+  // PESQUISA POR RECONHECIMENTO FACIAL
+  const handleFaceSearch = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!modelsLoaded) return alert("Modelos de IA ainda estão a carregar. Aguarde uns segundos.");
+    
+    setLoading(true);
+    try {
+      const img = await faceapi.bufferToImage(file);
+      const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+      
+      if (!detection) {
+        alert("A IA não conseguiu detetar um rosto nítido nesta foto. Tente outra com o rosto mais visível.");
+        setLoading(false);
+        return;
+      }
+
+      // Formata o vetor para o pgvector do Supabase
+      const descriptorStr = '[' + Array.from(detection.descriptor).join(',') + ']';
+      
+      const { data, error } = await supabase.rpc('buscar_rosto_parecido', {
+        query_embedding: descriptorStr,
+        limite_similaridade: 0.4, // Grau de tolerância (0 a 1)
+        quantidade: 10
+      });
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const ids = data.map(d => d.individuo_id);
+        const { data: results } = await supabase
+          .from('individuos')
+          .select('*, fotos_individuos(url_storage), observacoes_individuos(observacao, autor_nome, criado_em)')
+          .in('id', ids);
+          
+        if (results) {
+          // Ordena pelos mais parecidos primeiro
+          results.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+          setIndividuos(results);
+        }
+      } else {
+        alert("Nenhum rosto semelhante foi encontrado na base de dados.");
+        carregarDados();
+      }
+    } catch (error) {
+      alert("Erro na análise facial: " + error.message);
+      carregarDados();
+    }
+    setLoading(false);
+    if (fileInputSearchRef.current) fileInputSearchRef.current.value = '';
   };
 
   const handleSave = async () => {
     if (!formData.nome) return;
     setLoading(true);
     
-    // Aplica formatação de texto apenas no momento de enviar para a base de dados
     const nomeFormatado = applyCapitalizeWords(formData.nome);
     const vulgoFormatado = applyCapitalizeWords(formData.vulgo);
     const enderecoFormatado = applyCapitalizeWords(formData.endereco);
     const modusFormatado = applyCapitalizeFirst(formData.modus_operandi);
     const artigosFormatadosStr = applyCapitalizeFirst(formData.artigos);
-    
     const arrayArtigos = typeof artigosFormatadosStr === 'string' ? artigosFormatadosStr.split(',').map(a => a.trim()).filter(Boolean) : artigosFormatadosStr;
     const nomeUsuario = session.user.email.split('@')[0];
+    
     let indId;
+    let faceDescriptorStr = null;
+
+    // Se anexou fotos, tenta extrair a biometria facial da PRIMEIRA foto
+    if (formFotos.length > 0 && modelsLoaded) {
+      try {
+        const img = new Image();
+        img.src = formFotos[0];
+        await new Promise(r => img.onload = r);
+        const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+        if (detection) {
+          faceDescriptorStr = '[' + Array.from(detection.descriptor).join(',') + ']';
+        }
+      } catch (err) {
+        console.warn("Não foi possível extrair a biometria facial desta foto.");
+      }
+    }
+
+    const payload = {
+      nome: nomeFormatado,
+      vulgo: vulgoFormatado,
+      cpf: formData.cpf,
+      rg: formData.rg,
+      endereco: enderecoFormatado,
+      artigos_criminais: arrayArtigos,
+      modus_operandi: modusFormatado
+    };
+
+    // Só atualiza o rosto se encontrou um novo rosto válido na foto
+    if (faceDescriptorStr) {
+      payload.face_descriptor = faceDescriptorStr;
+    }
 
     if (selectedIndividuo && view === 'edit') {
-      const { error: indError } = await supabase
-        .from('individuos')
-        .update({
-          nome: nomeFormatado,
-          vulgo: vulgoFormatado,
-          cpf: formData.cpf,
-          rg: formData.rg,
-          endereco: enderecoFormatado,
-          artigos_criminais: arrayArtigos,
-          modus_operandi: modusFormatado
-        })
-        .eq('id', selectedIndividuo.id);
-
+      const { error: indError } = await supabase.from('individuos').update(payload).eq('id', selectedIndividuo.id);
       if (indError) { alert('Erro ao atualizar'); setLoading(false); return; }
       indId = selectedIndividuo.id;
     } else {
-      const { data: indData, error: indError } = await supabase
-        .from('individuos')
-        .insert([{
-          nome: nomeFormatado,
-          vulgo: vulgoFormatado,
-          cpf: formData.cpf,
-          rg: formData.rg,
-          endereco: enderecoFormatado,
-          artigos_criminais: arrayArtigos,
-          modus_operandi: modusFormatado,
-          criado_por: nomeUsuario,
-          user_id: session.user.id
-        }])
-        .select()
-        .single();
-
+      payload.criado_por = nomeUsuario;
+      payload.user_id = session.user.id;
+      const { data: indData, error: indError } = await supabase.from('individuos').insert([payload]).select().single();
       if (indError) { alert('Erro ao salvar'); setLoading(false); return; }
       indId = indData.id;
     }
@@ -174,17 +239,10 @@ export default function SentinelaApp() {
     for (const fotoBase64 of formFotos) {
       const blob = await fetch(fotoBase64).then(res => res.blob());
       const fileName = `${indId}/${Date.now()}.jpg`;
-      
       const { data: uploadData } = await supabase.storage.from('fotos-individuos').upload(fileName, blob, { contentType: 'image/jpeg' });
-
       if (uploadData) {
         const { data: { publicUrl } } = supabase.storage.from('fotos-individuos').getPublicUrl(fileName);
-        await supabase.from('fotos_individuos').insert([{
-          individuo_id: indId,
-          url_storage: publicUrl,
-          enviado_por: nomeUsuario,
-          user_id: session.user.id
-        }]);
+        await supabase.from('fotos_individuos').insert([{ individuo_id: indId, url_storage: publicUrl, enviado_por: nomeUsuario, user_id: session.user.id }]);
       }
     }
 
@@ -219,17 +277,9 @@ export default function SentinelaApp() {
     if (!novaNota.trim()) return;
     const nomeUsuario = session.user.email.split('@')[0];
     const notaFormatada = applyCapitalizeFirst(novaNota);
-    
-    await supabase.from('observacoes_individuos').insert([{
-      individuo_id: selectedIndividuo.id,
-      autor_nome: nomeUsuario,
-      observacao: notaFormatada,
-      user_id: session.user.id
-    }]);
-
+    await supabase.from('observacoes_individuos').insert([{ individuo_id: selectedIndividuo.id, autor_nome: nomeUsuario, observacao: notaFormatada, user_id: session.user.id }]);
     setNovaNota('');
     carregarDados();
-    
     const { data } = await supabase.from('individuos').select('*, fotos_individuos(url_storage), observacoes_individuos(observacao, autor_nome, criado_em)').eq('id', selectedIndividuo.id).single();
     if(data) setSelectedIndividuo(data);
   };
@@ -303,7 +353,7 @@ export default function SentinelaApp() {
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('dashboard')}>
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => { carregarDados(); setView('dashboard'); setSearchQuery(''); }}>
             <div className="bg-cyan-500/10 p-2 rounded-lg border border-cyan-500/30">
               <Shield className="text-cyan-400 w-6 h-6" />
             </div>
@@ -324,24 +374,35 @@ export default function SentinelaApp() {
       <main className="max-w-6xl mx-auto p-4 md:p-6">
         {view === 'dashboard' && (
           <div className="space-y-6">
-            <div className="flex gap-4">
-              <div className="relative flex-1">
+            <div className="flex gap-2 md:gap-4 flex-wrap md:flex-nowrap">
+              <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3 top-3 w-5 h-5 text-slate-500" />
                 <input type="text" placeholder="Pesquisar por nome, vulgo ou CPF..." className="w-full bg-slate-900 border border-slate-700 rounded-lg py-3 pl-10 pr-4 outline-none focus:border-cyan-500" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
               </div>
-              <button onClick={abrirFormularioNovo} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 rounded-lg font-medium flex items-center gap-2">
+              
+              {/* BOTÃO DE PESQUISA POR IA */}
+              <label className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg px-4 flex items-center justify-center cursor-pointer transition-colors" title="Pesquisar Rosto com IA">
+                <Camera className={`w-5 h-5 ${modelsLoaded ? 'text-cyan-400' : 'text-slate-500'}`} />
+                <span className="ml-2 text-sm font-medium hidden md:inline">{modelsLoaded ? 'Reconhecimento' : 'A carregar IA...'}</span>
+                <input type="file" accept="image/*" className="hidden" ref={fileInputSearchRef} onChange={handleFaceSearch} disabled={!modelsLoaded} />
+              </label>
+
+              <button onClick={abrirFormularioNovo} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 rounded-lg font-medium flex items-center justify-center gap-2">
                 <Plus className="w-5 h-5" /> Nova Ficha
               </button>
             </div>
 
             {loading ? (
-              <div className="text-center text-cyan-500 py-10">Sincronizando com o banco de dados...</div>
+              <div className="text-center text-cyan-500 py-10 animate-pulse">A processar base de dados e IA...</div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredIndividuos.map(ind => (
                   <div key={ind.id} onClick={() => { setSelectedIndividuo(ind); setView('detail'); }} className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-cyan-500/50 cursor-pointer">
                     <div className="flex gap-4">
-                      <div className="w-16 h-16 rounded-lg bg-slate-800 overflow-hidden shrink-0">
+                      <div className="w-16 h-16 rounded-lg bg-slate-800 overflow-hidden shrink-0 relative">
+                        {ind.face_descriptor && (
+                           <div className="absolute top-0 right-0 bg-cyan-600 w-3 h-3 rounded-bl-lg z-10" title="Biometria Facial Registrada"></div>
+                        )}
                         {ind.fotos_individuos?.[0] ? <img src={ind.fotos_individuos[0].url_storage} className="w-full h-full object-cover" /> : <User className="w-full h-full p-4 text-slate-600" />}
                       </div>
                       <div className="overflow-hidden">
@@ -362,7 +423,6 @@ export default function SentinelaApp() {
             <h2 className="text-xl font-bold mb-6 border-b border-slate-800 pb-4">
               {view === 'edit' ? 'Editar Ficha' : 'Nova Ficha'}
             </h2>
-            {/* O texto inserido aqui fica normal enquanto escreve, e é capitalizado ao salvar! */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <input type="text" placeholder="Nome Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
               <input type="text" placeholder="Vulgo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.vulgo} onChange={e => setFormData({...formData, vulgo: e.target.value})} />
@@ -374,7 +434,10 @@ export default function SentinelaApp() {
             <textarea placeholder="Modus Operandi" className="w-full bg-slate-950 border border-slate-800 rounded p-3 h-24 mb-4 outline-none" value={formData.modus_operandi} onChange={e => setFormData({...formData, modus_operandi: e.target.value})} />
             
             <div className="bg-slate-950 p-4 border border-slate-800 rounded mb-4">
-              <p className="text-sm mb-2">{view === 'edit' ? 'Adicionar Novas Fotos (as antigas serão mantidas)' : 'Fotos'}</p>
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-sm">{view === 'edit' ? 'Adicionar Novas Fotos (as antigas serão mantidas)' : 'Fotos para Arquivo e IA'}</p>
+                {!modelsLoaded && <span className="text-xs text-amber-500">IA a carregar... aguarde.</span>}
+              </div>
               <div className="flex gap-2">
                 {formFotos.map((f, i) => <img key={i} src={f} className="w-16 h-16 object-cover rounded border border-slate-700" />)}
                 {formFotos.length < 5 && (
@@ -384,12 +447,13 @@ export default function SentinelaApp() {
                   </label>
                 )}
               </div>
+              <p className="text-xs text-slate-500 mt-2">Dica: A primeira foto anexada será analisada pela IA para registar a biometria facial.</p>
             </div>
 
             <div className="flex justify-end gap-3">
               <button onClick={() => view === 'edit' ? setView('detail') : setView('dashboard')} className="text-slate-400">Cancelar</button>
-              <button onClick={handleSave} disabled={loading || !formData.nome} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded">
-                {loading ? 'Processando...' : (view === 'edit' ? 'Salvar Alterações' : 'Salvar Ficha')}
+              <button onClick={handleSave} disabled={loading || !formData.nome} className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded flex items-center gap-2">
+                {loading ? 'A Guardar e Analisar...' : (view === 'edit' ? 'Salvar Alterações' : 'Salvar Ficha')}
               </button>
             </div>
           </div>
@@ -404,7 +468,10 @@ export default function SentinelaApp() {
                 <div className="flex gap-4">
                   {selectedIndividuo.fotos_individuos?.[0] ? <img src={selectedIndividuo.fotos_individuos[0].url_storage} className="w-24 h-24 rounded object-cover border border-slate-800" /> : <div className="w-24 h-24 bg-slate-800 rounded flex items-center justify-center"><User className="text-slate-600 w-10 h-10"/></div>}
                   <div className="flex flex-col justify-center">
-                    <h2 className="text-2xl font-bold uppercase tracking-wide">{selectedIndividuo.nome}</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-2xl font-bold uppercase tracking-wide">{selectedIndividuo.nome}</h2>
+                      {selectedIndividuo.face_descriptor && <span className="bg-cyan-900/50 text-cyan-400 text-[10px] px-2 py-1 rounded border border-cyan-800">IA Ativada</span>}
+                    </div>
                     <p className="text-cyan-400 font-medium">Vulgo: {selectedIndividuo.vulgo || 'Não informado'}</p>
                     <p className="text-xs text-slate-500 mt-1">Ficha criada por: {selectedIndividuo.criado_por}</p>
                   </div>
@@ -427,11 +494,7 @@ export default function SentinelaApp() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                   <div className="bg-slate-950 p-3 rounded border border-slate-800">
                     <span className="text-slate-500 block text-xs mb-1">CPF (Clique para copiar)</span>
-                    <div 
-                      className={`flex items-center gap-2 transition-colors ${selectedIndividuo.cpf ? 'cursor-pointer text-cyan-400 hover:text-cyan-300 font-medium' : 'text-slate-200'}`}
-                      onClick={() => copiarCPF(selectedIndividuo.cpf)}
-                      title={selectedIndividuo.cpf ? "Clique para copiar o CPF" : ""}
-                    >
+                    <div className={`flex items-center gap-2 transition-colors ${selectedIndividuo.cpf ? 'cursor-pointer text-cyan-400 hover:text-cyan-300 font-medium' : 'text-slate-200'}`} onClick={() => copiarCPF(selectedIndividuo.cpf)}>
                       <span>{selectedIndividuo.cpf || 'Não informado'}</span>
                       {selectedIndividuo.cpf && (bnmpCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />)}
                     </div>
@@ -455,7 +518,6 @@ export default function SentinelaApp() {
                 <div className="md:col-span-2 space-y-6">
                   <div>
                     <h3 className="text-sm font-bold text-slate-500 mb-2 tracking-wider">MODUS OPERANDI</h3>
-                    {/* Alterado para whitespace-pre-wrap para desenhar as quebras de linha dadas pelo celular */}
                     <p className="bg-slate-950 p-4 border border-slate-800 rounded text-sm min-h-[100px] text-slate-300 whitespace-pre-wrap">{selectedIndividuo.modus_operandi || 'Nenhuma informação detalhada.'}</p>
                   </div>
                   <div className="bg-slate-950/50 p-4 border border-slate-800 rounded flex justify-between items-center">
@@ -486,7 +548,6 @@ export default function SentinelaApp() {
                     )}
                     {selectedIndividuo.observacoes_individuos?.map((obs, i) => (
                       <div key={i} className="bg-slate-900 p-3 rounded text-sm border border-slate-800">
-                        {/* Alterado para desenhar as quebras de linha nas notas */}
                         <p className="text-slate-300 whitespace-pre-wrap">{obs.observacao}</p>
                         <p className="text-[10px] text-cyan-500 mt-2 font-medium">{obs.autor_nome}</p>
                       </div>
