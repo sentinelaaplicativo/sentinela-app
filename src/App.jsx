@@ -91,7 +91,7 @@ export default function SentinelaApp() {
     setFormFotos(prev => [...prev, ...processedFotos]);
   };
 
-  // Funções de formatação automática
+  // ---------------- FUNÇÕES DE FORMATAÇÃO ----------------
   const formatCPF = (value) => {
     return value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})/, '$1-$2').replace(/(-\d{2})\d+?$/, '$1');
   };
@@ -104,13 +104,16 @@ export default function SentinelaApp() {
     return v;
   };
 
-  const formatEndereco = (value) => {
-    const preposicoes = ['de', 'da', 'do', 'das', 'dos', 'com', 'em', 'na', 'no', 'nas', 'nos'];
-    return value.toLowerCase().split(' ').map((palavra, index) => {
-      if (preposicoes.includes(palavra) && index !== 0) return palavra;
-      return palavra.charAt(0).toUpperCase() + palavra.slice(1);
-    }).join(' ');
+  const formatCapitalizeWords = (value) => {
+    if (!value) return '';
+    return value.replace(/(^\w)|(\s+\w)/g, match => match.toUpperCase());
   };
+
+  const formatCapitalizeFirst = (value) => {
+    if (!value) return '';
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  };
+  // -------------------------------------------------------
 
   const handleSave = async () => {
     if (!formData.nome) return;
@@ -121,7 +124,6 @@ export default function SentinelaApp() {
     let indId;
 
     if (selectedIndividuo && view === 'edit') {
-      // MODO EDIÇÃO
       const { error: indError } = await supabase
         .from('individuos')
         .update({
@@ -138,7 +140,6 @@ export default function SentinelaApp() {
       if (indError) { alert('Erro ao atualizar'); setLoading(false); return; }
       indId = selectedIndividuo.id;
     } else {
-      // MODO CRIAÇÃO
       const { data: indData, error: indError } = await supabase
         .from('individuos')
         .insert([{
@@ -159,7 +160,6 @@ export default function SentinelaApp() {
       indId = indData.id;
     }
 
-    // Salva novas fotos adicionadas
     for (const fotoBase64 of formFotos) {
       const blob = await fetch(fotoBase64).then(res => res.blob());
       const fileName = `${indId}/${Date.now()}.jpg`;
@@ -351,14 +351,14 @@ export default function SentinelaApp() {
               {view === 'edit' ? 'Editar Ficha' : 'Nova Ficha'}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <input type="text" placeholder="Nome Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
-              <input type="text" placeholder="Vulgo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.vulgo} onChange={e => setFormData({...formData, vulgo: e.target.value})} />
+              <input type="text" placeholder="Nome Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.nome} onChange={e => setFormData({...formData, nome: formatCapitalizeWords(e.target.value)})} />
+              <input type="text" placeholder="Vulgo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.vulgo} onChange={e => setFormData({...formData, vulgo: formatCapitalizeWords(e.target.value)})} />
               <input type="text" placeholder="CPF" maxLength="14" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.cpf} onChange={e => setFormData({...formData, cpf: formatCPF(e.target.value)})} />
               <input type="text" placeholder="RG" maxLength="12" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none" value={formData.rg} onChange={e => setFormData({...formData, rg: formatRG(e.target.value)})} />
-              <input type="text" placeholder="Endereço Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.endereco} onChange={e => setFormData({...formData, endereco: formatEndereco(e.target.value)})} />
-              <input type="text" placeholder="Artigos Penais (separados por vírgula)" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.artigos} onChange={e => setFormData({...formData, artigos: e.target.value})} />
+              <input type="text" placeholder="Endereço Completo" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.endereco} onChange={e => setFormData({...formData, endereco: formatCapitalizeWords(e.target.value)})} />
+              <input type="text" placeholder="Artigos Penais (separados por vírgula)" className="bg-slate-950 border border-slate-800 rounded p-3 outline-none md:col-span-2" value={formData.artigos} onChange={e => setFormData({...formData, artigos: formatCapitalizeFirst(e.target.value)})} />
             </div>
-            <textarea placeholder="Modus Operandi" className="w-full bg-slate-950 border border-slate-800 rounded p-3 h-24 mb-4 outline-none" value={formData.modus_operandi} onChange={e => setFormData({...formData, modus_operandi: e.target.value})} />
+            <textarea placeholder="Modus Operandi" className="w-full bg-slate-950 border border-slate-800 rounded p-3 h-24 mb-4 outline-none" value={formData.modus_operandi} onChange={e => setFormData({...formData, modus_operandi: formatCapitalizeFirst(e.target.value)})} />
             
             <div className="bg-slate-950 p-4 border border-slate-800 rounded mb-4">
               <p className="text-sm mb-2">{view === 'edit' ? 'Adicionar Novas Fotos (as antigas serão mantidas)' : 'Fotos'}</p>
@@ -397,7 +397,6 @@ export default function SentinelaApp() {
                   </div>
                 </div>
                 
-                {/* Botões restritos ao criador da ficha */}
                 {selectedIndividuo.user_id === session.user.id && (
                   <div className="flex flex-col md:flex-row items-center gap-2 mt-4 md:mt-0">
                     <button onClick={abrirFormularioEdicao} className="px-4 py-2 rounded text-sm w-full md:w-auto border border-cyan-800 text-cyan-400 hover:bg-cyan-900/30 flex items-center justify-center gap-2 transition-colors">
@@ -478,7 +477,7 @@ export default function SentinelaApp() {
                       </div>
                     ))}
                   </div>
-                  <textarea placeholder="Adicionar nova informação..." className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm h-16 outline-none focus:border-cyan-500 resize-none" value={novaNota} onChange={e => setNovaNota(e.target.value)} />
+                  <textarea placeholder="Adicionar nova informação..." className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm h-16 outline-none focus:border-cyan-500 resize-none" value={novaNota} onChange={e => setNovaNota(formatCapitalizeFirst(e.target.value))} />
                   <button onClick={handleAddNote} className="w-full bg-cyan-600 hover:bg-cyan-500 mt-2 py-2 rounded text-sm text-white font-medium transition-colors">Anexar Nota</button>
                 </div>
               </div>
